@@ -1,0 +1,116 @@
+import aiohttp
+from aiogram import Bot, Dispatcher
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+import asyncio
+import json
+
+
+WHITE_LIST = [123456789, 987654321, 273599480, 1201352874]
+
+# Создаем кнопки для функций check_imei и ID_check
+keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text='/ID_check'), KeyboardButton(text='/check_imei')]
+    ],
+    resize_keyboard=True
+)
+
+
+class CheckIMEIState(StatesGroup):  # Создаем состояние
+    waiting_for_imei = State()
+
+
+async def check_imei(imei: str):   # Функция для проверки IMEI чкерез API
+    url = 'https://api.imeicheck.net/v1/checks'
+    token = 'sy5woSxuac7xKalljXFjgbB2hCRw7GQLueRtGp1974d8fe72'
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+    payload = json.dumps({
+        'deviceId': imei,
+        'serviceId': 1
+    })
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, data=payload) as response:
+                print(f"Response status: {response.status}")  # Выводим статус ответа
+                print(f"Response body: {await response.text()}")  # Выводим тело ответа
+
+                if response.status == 200:
+                    return await response.json()  # Если запрос удачный, возвращаем json-файл
+                elif response.status == 400:
+                    return {"error": "Некорректный запрос. Проверьте IMEI."}
+                elif response.status == 401:
+                    return {"error": "Проблема с авторизацией API. Проверьте токен."}
+                elif response.status == 402:
+                    return {"error": "Недостаточно средств. Проверьте баланс."}
+                elif response.status == 422:
+                    return {"error": "Параметры запроса некорректны. Возможно, неверный IMEI."}
+                elif response.status == 500:
+                    return {"error": "Сервер API временно недоступен."}
+                else:
+                    return {"error": "Неизвестная ошибка. Код ответа: {response.status}"}
+    except aiohttp.ClientError as e:
+        return {'error': f'Ошибка сети: {str(e)}'}
+    except Exception as e:
+        return {'error': f'Неизвестная ошибка: {str(e)}'}
+
+
+@dp.message(Command('start'))
+async def start_command(message: Message):
+    if message.from_user.id not in WHITE_LIST:
+        await message.answer('Доступ к боту запрещен.')
+        return
+
+    await message.answer('Привет! Выберите действие с помощью кнопок ниже:', reply_markup=keyboard)
+
+
+@dp.message(Command('ID_check'))   # Хэндлер /start
+async def id_check_command(message: Message):
+    if message.from_user.id not in WHITE_LIST:
+        await message.answer('Доступ к боту запрещен.')
+        return
+
+    await message.answer('Привет! Присылай IMEI на проверку.')
+
+
+@dp.message(Command('check_imei'))
+async def check_imei_command(message: Message, state: FSMContext):
+    if message.from_user.id not in WHITE_LIST:
+        await message.answer('Доступ к боту запрещен.')
+        return
+
+    await message.answer('Введите IMEI для проверки:')
+    await state.set_state(CheckIMEIState.waiting_for_imei)
+
+
+@dp.message(CheckIMEIState.waiting_for_imei)
+async def imei_received(message: Message, state: FSMContext):
+    imei = message.text.strip()
+
+    if not imei.isdigit() or len(imei) not in [15, 16]:
+        await message.answer('Пожалуйста, введите корректный IMEI (15 или 16 цифр).')
+        return
+
+    result = await check_imei(imei)
+
+    if result:
+        if 'error' in result:
+            await message.answer(f"Ошибка: {result['error']}")
+        else:
+            response_text = (
+                f'Результат проверки IMEI:\n'
+                f'IMEI: {result.get('deviceId', 'Неизвестно')}\n'
+                f'Статус: {result.get('status', 'Неизвестно')}\n'
+                f'Сервис: {result.get('service', {}).get('title', 'Неизвестно')}\n'
+                f'Сумма: {result.get('amount', '0.00')} USD\n'
+                f'Обработано в: {result.get('processedAt', 'Неизвестно')}\n'
+            )
+            await message.answer(response_text)
+
+    await state.clear()  # Сбрасываем состояние

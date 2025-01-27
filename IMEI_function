@@ -1,5 +1,4 @@
 import aiohttp
-from aiogram import Bot, Dispatcher
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -8,7 +7,7 @@ import asyncio
 import json
 
 
-WHITE_LIST = [123456789, 987654321, 273599480, 1201352874]
+WHITE_LIST = [**********]
 
 # Создаем кнопки для функций check_imei и ID_check
 keyboard = ReplyKeyboardMarkup(
